@@ -1,0 +1,33 @@
+#!/bin/sh
+
+release=false
+
+for argv in "$@"; do
+    case "$1" in
+        -r|--release) release=true;;
+    esac
+done
+
+target_directory=""
+workspace_root=""
+
+if cargo build "$@"; then
+    if command -v jq &> /dev/null; then
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        target_directory=$(echo "$metadata" | jq -r .target_directory)
+        workspace_root=$(echo "$metadata" | jq -r .workspace_root)
+    else
+        workspace_root=$(dirname "$0")
+        target_directory="$workspace_root/target"
+    fi
+
+    mkdir -p "$workspace_root/bin"
+
+    if [ "$release" = true ] && [ -d "$target_directory/release" ]; then
+        cp "$target_directory/release/yswan" "$workspace_root/bin"
+    elif [ "$release" = false ] && [ -d "$target_directory/debug" ]; then
+        cp "$target_directory/debug/yswan" "$workspace_root/bin"
+    fi
+else
+    exit "$?"
+fi

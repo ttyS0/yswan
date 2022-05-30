@@ -1,0 +1,99 @@
+version: '3.7'
+services:
+  gateway:
+    build:
+      context: .
+      target: gateway
+    hostname: gateway
+    networks:
+      private:
+        ipv4_address: 192.168.233.100
+      public:
+        ipv4_address: 192.168.234.100
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.forwarding=1
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./bin:/app
+    entrypoint:
+      - /bin/sh
+      - -cx
+      - |
+        cat > /etc/dnsmasq.conf << EOF
+        address=/gateway.example.net/192.168.234.100
+        EOF
+        /etc/init.d/dnsmasq start
+        iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE
+        tail -f /dev/null
+  web:
+    build:
+      context: .
+      target: web
+    hostname: private-web
+    networks:
+      private:
+        ipv4_address: 192.168.233.101
+    dns:
+      - 192.168.233.100
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./test/www:/var/www/html
+    entrypoint:
+      - /bin/sh
+      - -cx
+      - |
+        ip route del default
+        ip route add default via 192.168.233.100
+        docker-php-entrypoint apache2-foreground
+  client1:
+    build:
+      context: .
+      target: client
+    hostname: client1
+    networks:
+      public:
+        ipv4_address: 192.168.234.201
+    dns:
+      - 192.168.234.100
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./bin:/app
+    entrypoint: tail -f
+  client2:
+    build:
+      context: .
+      target: client
+    hostname: client2
+    networks:
+      public:
+        ipv4_address: 192.168.234.202
+    dns:
+      - 192.168.234.100
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun
+    volumes:
+      - ./bin:/app
+    entrypoint: tail -f
+networks:
+  private:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.233.0/24
+  public:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.234.0/24

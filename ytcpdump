@@ -1,0 +1,24 @@
+#!/bin/sh
+
+help_and_exit() {
+    cat >&2 << EOF
+$0 - Wrapper for docker-compose + tcpdump
+
+Usage:
+    $0 SERVICE [OPTIONS]
+
+Options:
+    Same with tcpdump.
+EOF
+    exit 1
+}
+
+service="$1"
+
+if [ -z "$service" ]; then
+    help_and_exit
+else
+    shift
+fi
+
+docker-compose exec "$service" tcpdump "$@"

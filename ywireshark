@@ -1,0 +1,52 @@
+#!/bin/sh
+
+help_and_exit() {
+    cat >&2 << EOF
+$0 - Wireshark wrapper for docker-compose + tcpdump
+
+Usage:
+    $0 SERVICE [OPTIONS]
+
+Options:
+    Same with tcpdump.
+EOF
+    exit 1
+}
+
+service="$1"
+interface=""
+
+if [ -z "$service" ]; then
+    help_and_exit
+else
+    shift
+fi
+
+is_interface=false
+for argv in "$@"; do
+    if [ "$is_interface" = true ]; then
+        interface="$argv"
+        is_interface=false
+    else
+        case "$argv" in
+            -i) is_interface=true;;
+            *) ;;
+        esac
+    fi
+done
+
+pipe="/tmp/$service-$interface"
+
+if [[ ! -p "$pipe" ]]; then
+    mkfifo "$pipe"
+fi
+
+# docker-compose exec "$service" tcpdump "$@" -U -s0 -w - >  & | wireshark -X stdin_descr:"$interface-$service" -k -i -
+
+docker-compose exec "$service" tcpdump "$@" -U -s0 -w - > "$pipe" &
+tcpdump_pid="$!"
+
+wireshark -k -i "$pipe"
+
+kill "$tcpdump_pid"
+rm -f "$pipe"

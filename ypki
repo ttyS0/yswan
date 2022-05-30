@@ -1,0 +1,98 @@
+#!/bin/sh
+
+help_and_exit() {
+    cat >&2 << EOF
+$0 - A small utility to make CA and endpoint certificates by OpenSSL.
+
+Usage:
+    $0 ACTION [OPTIONS]
+
+Actions:
+    ca          Create a new CA entity
+    endpoint    Create a new endpoint certificate
+
+Options:
+    --keysize   Specify the size of RSA private key. (default: 4096 for CA, 2048 for endpoints)
+    --cadir     Specify the directory where upper CA chain lies. (endpoints only)
+    --subject   Specify the subject of new certificates.
+    --days      Specify the valid duration of new certificates. (default: 3650 for CA, 365 for endpoints)
+    --san       Specify the subjectAltName of new certificates. (default: "DNS:subject")
+
+(X) --notbefore Specify the start time when the certificate is valid. (default: now)
+    --createdat
+
+(X) --notafter  Specify the end time when the certificate is valid.
+    --expiresat
+
+    --outputdir Specify the output dir. (default: subject name)
+
+(X): WIP
+EOF
+    exit 1
+}
+
+action="$1"
+keysize=""
+ca=""
+cadir=""
+subject=""
+san=""
+days=""
+outputdir=""
+notbefore=""
+notafter=""
+
+case "$action" in
+    ca) keysize="4096"; days="1825"; shift;;
+    endpoint) keysize="2048"; days="365"; shift;;
+    *) help_and_exit;;
+esac
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --cadir) cadir="$2"; shift;;
+        --subject) subject="$2"; shift;;
+        --san) san="$2"; shift;;
+        --days) days="$2"; shift;;
+        --notbefore|--createdat) notbefore="$2"; shift;;
+        --notbefore|--expiresat) notafter="$2"; shift;;
+        --outputdir) outputdir="$2"; shift;;
+        *) echo "Unknown option passed: $1"; exit 1;;
+    esac
+    shift
+done
+
+if [ -z "$san" ]; then
+    san="DNS:$subject"
+fi
+
+_exts="
+[ypki_exts]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment
+subjectAltName = $san
+"
+extfile="/tmp/ypki_exts.conf"
+
+case "$action" in
+    ca)
+        openssl genrsa -out "$outputdir/ca.key" "$keysize"
+        openssl req -out "$outputdir/ca.pem" -new -x509 -key "$outputdir/ca.key" -subj "/C=CN/ST=Hubei/L=Wuhan/O=HUST/OU=CSE/CN=$subject" -days "$days"
+        ;;
+    endpoint)
+        echo "$_exts" > "$extfile"
+        openssl genrsa -out "$outputdir/$subject.key" "$keysize"
+        openssl req -out "$outputdir/$subject.csr" -new -key "$outputdir/$subject.key" -subj "/C=CN/ST=Hubei/L=Wuhan/O=HUST/OU=CSE/CN=$subject"
+        openssl x509 -out "$outputdir/$subject.pem" \
+                     -req \
+                     -in "$outputdir/$subject.csr" \
+                     -CA "$cadir/ca.pem" \
+                     -CAkey "$cadir/ca.key" \
+                     -set_serial "$RANDOM" \
+                     -days "$days" \
+                     -sha256 \
+                     -extfile "$extfile" \
+                     -extensions "ypki_exts"
+        rm "$extfile"
+        ;;
+esac
